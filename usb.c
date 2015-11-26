@@ -93,6 +93,48 @@ static int read_data_sync(struct iio_context_pdata *pdata,
 		return transferred;
 }
 
+static int usb_get_version(const struct iio_context *ctx,
+		unsigned int *major, unsigned int *minor, char git_tag[8])
+{
+	struct iio_context_pdata *pdata = ctx->pdata;
+	char buf[256], *ptr = buf, *end;
+	long maj, min;
+	int ret;
+
+	ret = write_data_sync(pdata, 1,
+			"VERSION\r\n", sizeof("VERSION\r\n") - 1);
+	if (ret < 0)
+		return ret;
+
+	ret = read_data_sync(pdata, 1, buf, sizeof(buf));
+	if (ret < 0)
+		return ret;
+
+	maj = strtol(ptr, &end, 10);
+	if (ptr == end)
+		return -EIO;
+
+	ptr = end + 1;
+	min = strtol(ptr, &end, 10);
+	if (ptr == end)
+		return -EIO;
+
+	ptr = end + 1;
+	if (buf + ret < ptr + 8)
+		return -EIO;
+
+	/* Strip the \n */
+	ptr[buf + ret - ptr - 1] = '\0';
+
+	if (major)
+		*major = (unsigned int) maj;
+	if (minor)
+		*minor = (unsigned int) min;
+	if (git_tag)
+		strncpy(git_tag, ptr, 8);
+	return 0;
+}
+
 static void usb_shutdown(struct iio_context *ctx)
 {
 	libusb_close(ctx->pdata->hdl);
@@ -100,6 +142,7 @@ static void usb_shutdown(struct iio_context *ctx)
 }
 
 static const struct iio_backend_ops usb_ops = {
+	.get_version = usb_get_version,
 	.shutdown = usb_shutdown,
 };
 
