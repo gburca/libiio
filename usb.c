@@ -93,15 +93,11 @@ static int read_data_sync(struct iio_context_pdata *pdata,
 		return transferred;
 }
 
-static ssize_t usb_exec_command(struct iio_context_pdata *pdata, char *cmd)
+static ssize_t usb_read_value(struct iio_context_pdata *pdata)
 {
 	int ret;
 	char buf[256], *end;
 	long value;
-
-	ret = write_data_sync(pdata, 1, cmd, strlen(cmd));
-	if (ret < 0)
-		return (ssize_t) ret;
 
 	ret = read_data_sync(pdata, 1, buf, sizeof(buf));
 	if (ret < 0)
@@ -112,6 +108,19 @@ static ssize_t usb_exec_command(struct iio_context_pdata *pdata, char *cmd)
 		return -EIO;
 
 	return (ssize_t) value;
+}
+
+static ssize_t usb_exec_command(struct iio_context_pdata *pdata, char *cmd)
+{
+	int ret;
+	char buf[256], *end;
+	long value;
+
+	ret = write_data_sync(pdata, 1, cmd, strlen(cmd));
+	if (ret < 0)
+		return (ssize_t) ret;
+
+	return usb_read_value(pdata);
 }
 
 static int usb_get_version(const struct iio_context *ctx,
@@ -196,6 +205,39 @@ static ssize_t usb_read_attr_helper(const struct iio_device *dev,
 	return ret;
 }
 
+static ssize_t usb_write_attr_helper(const struct iio_device *dev,
+		const struct iio_channel *chn, const char *attr,
+		const char *src, size_t len, bool is_debug)
+{
+	struct iio_context_pdata *pdata = dev->ctx->pdata;
+	ssize_t read_len;
+	ssize_t ret;
+	char buf[1024];
+	const char *id = dev->id;
+	long resp;
+
+	if (chn)
+		snprintf(buf, sizeof(buf), "WRITE %s %s %s %s %lu\r\n",
+				id, chn->is_output ? "OUTPUT" : "INPUT",
+				chn->id, attr ? attr : "", (unsigned long) len);
+	else if (is_debug)
+		snprintf(buf, sizeof(buf), "WRITE %s DEBUG %s %lu\r\n",
+				id, attr ? attr : "", (unsigned long) len);
+	else
+		snprintf(buf, sizeof(buf), "WRITE %s %s %lu\r\n",
+				id, attr ? attr : "", (unsigned long) len);
+
+	ret = write_data_sync(pdata, 1, buf, strlen(buf));
+	if (ret < 0)
+		return ret;
+
+	ret = write_data_sync(pdata, 1, (char *) src, len);
+	if (ret < 0)
+		return ret;
+
+	return usb_read_value(pdata);
+}
+
 static ssize_t usb_read_dev_attr(const struct iio_device *dev,
 		const char *attr, char *dst, size_t len, bool is_debug)
 {
@@ -206,6 +248,16 @@ static ssize_t usb_read_dev_attr(const struct iio_device *dev,
 	return usb_read_attr_helper(dev, NULL, attr, dst, len, is_debug);
 }
 
+static ssize_t usb_write_dev_attr(const struct iio_device *dev,
+		const char *attr, const char *src, size_t len, bool is_debug)
+{
+	if (attr && ((is_debug && !iio_device_find_debug_attr(dev, attr)) ||
+			(!is_debug && !iio_device_find_attr(dev, attr))))
+		return -ENOENT;
+
+	return usb_write_attr_helper(dev, NULL, attr, src, len, is_debug);
+}
+
 static ssize_t usb_read_chn_attr(const struct iio_channel *chn,
 		const char *attr, char *dst, size_t len)
 {
@@ -213,6 +265,15 @@ static ssize_t usb_read_chn_attr(const struct iio_channel *chn,
 		return -ENOENT;
 
 	return usb_read_attr_helper(chn->dev, chn, attr, dst, len, false);
+}
+
+static ssize_t usb_write_chn_attr(const struct iio_channel *chn,
+		const char *attr, const char *src, size_t len)
+{
+	if (attr && !iio_channel_find_attr(chn, attr))
+		return -ENOENT;
+
+	return usb_write_attr_helper(chn->dev, chn, attr, src, len, false);
 }
 
 static void usb_shutdown(struct iio_context *ctx)
@@ -225,6 +286,8 @@ static const struct iio_backend_ops usb_ops = {
 	.get_version = usb_get_version,
 	.read_device_attr = usb_read_dev_attr,
 	.read_channel_attr = usb_read_chn_attr,
+	.write_device_attr = usb_write_dev_attr,
+	.write_channel_attr = usb_write_chn_attr,
 	.shutdown = usb_shutdown,
 };
 
