@@ -93,6 +93,27 @@ static int read_data_sync(struct iio_context_pdata *pdata,
 		return transferred;
 }
 
+static ssize_t usb_exec_command(struct iio_context_pdata *pdata, char *cmd)
+{
+	int ret;
+	char buf[256], *end;
+	long value;
+
+	ret = write_data_sync(pdata, 1, cmd, strlen(cmd));
+	if (ret < 0)
+		return (ssize_t) ret;
+
+	ret = read_data_sync(pdata, 1, buf, sizeof(buf));
+	if (ret < 0)
+		return (ssize_t) ret;
+
+	value = strtol(buf, &end, 10);
+	if (buf == end)
+		return -EIO;
+
+	return (ssize_t) value;
+}
+
 static int usb_get_version(const struct iio_context *ctx,
 		unsigned int *major, unsigned int *minor, char git_tag[8])
 {
@@ -135,6 +156,65 @@ static int usb_get_version(const struct iio_context *ctx,
 	return 0;
 }
 
+static ssize_t usb_read_attr_helper(const struct iio_device *dev,
+		const struct iio_channel *chn, const char *attr, char *dst,
+		size_t len, bool is_debug)
+{
+	struct iio_context_pdata *pdata = dev->ctx->pdata;
+	ssize_t read_len;
+	ssize_t ret;
+	char buf[1024];
+	const char *id = dev->id;
+
+	if (chn)
+		snprintf(buf, sizeof(buf), "READ %s %s %s %s\r\n", id,
+				chn->is_output ? "OUTPUT" : "INPUT",
+				chn->id, attr ? attr : "");
+	else if (is_debug)
+		snprintf(buf, sizeof(buf), "READ %s DEBUG %s\r\n",
+				id, attr ? attr : "");
+	else
+		snprintf(buf, sizeof(buf), "READ %s %s\r\n",
+				id, attr ? attr : "");
+
+	read_len = usb_exec_command(pdata, buf);
+	if (read_len < 0)
+		return read_len;
+
+	if ((size_t) read_len > len) {
+		ERROR("Value returned by server is too large\n");
+		return -EIO;
+	}
+
+	ret = (ssize_t) read_data_sync(pdata, 1, dst, read_len);
+	if (ret < 0) {
+		ERROR("Unable to read response to READ: %i\n", ret);
+		return ret;
+	}
+
+	dst[ret - 1] = '\0';
+	return ret;
+}
+
+static ssize_t usb_read_dev_attr(const struct iio_device *dev,
+		const char *attr, char *dst, size_t len, bool is_debug)
+{
+	if (attr && ((is_debug && !iio_device_find_debug_attr(dev, attr)) ||
+			(!is_debug && !iio_device_find_attr(dev, attr))))
+		return -ENOENT;
+
+	return usb_read_attr_helper(dev, NULL, attr, dst, len, is_debug);
+}
+
+static ssize_t usb_read_chn_attr(const struct iio_channel *chn,
+		const char *attr, char *dst, size_t len)
+{
+	if (attr && !iio_channel_find_attr(chn, attr))
+		return -ENOENT;
+
+	return usb_read_attr_helper(chn->dev, chn, attr, dst, len, false);
+}
+
 static void usb_shutdown(struct iio_context *ctx)
 {
 	libusb_close(ctx->pdata->hdl);
@@ -143,6 +223,8 @@ static void usb_shutdown(struct iio_context *ctx)
 
 static const struct iio_backend_ops usb_ops = {
 	.get_version = usb_get_version,
+	.read_device_attr = usb_read_dev_attr,
+	.read_channel_attr = usb_read_chn_attr,
 	.shutdown = usb_shutdown,
 };
 
@@ -154,7 +236,7 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 	struct iio_context_pdata *pdata;
 	int ret, transferred;
 	char buf[256];
-	long xml_len;
+	ssize_t xml_len;
 	char *xml, *end;
 
 	pdata = calloc(1, sizeof(*pdata));
@@ -189,26 +271,13 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 	pdata->hdl = hdl;
 
 	DEBUG("Sending PRINT command\n");
-	ret = write_data_sync(pdata, 1, "PRINT\r\n", sizeof("PRINT\r\n") - 1);
-	if (ret < 0) {
+	xml_len = usb_exec_command(pdata, "PRINT\r\n");
+	if (xml_len < 0) {
 		ERROR("Unable to send print command: %i\n", ret);
 		goto err_libusb_close;
 	}
 
-	ret = read_data_sync(pdata, 1, buf, sizeof(buf));
-	if (ret < 0) {
-		ERROR("Unable to read result of print command: %i\n", ret);
-		goto err_libusb_close;
-	}
-
-	xml_len = strtol(buf, &end, 10);
-	if (end == buf) {
-		ERROR("Print command returned unexpected result\n");
-		ret = -EIO;
-		goto err_libusb_close;
-	}
-
-	xml = malloc(xml_len);
+	xml = malloc((size_t) xml_len);
 	if (!xml) {
 		ERROR("Unable to allocate XML string\n");
 		ret = -ENOMEM;
