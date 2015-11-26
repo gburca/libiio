@@ -807,9 +807,8 @@ ssize_t read_dev_attr(struct parser_pdata *pdata, struct iio_device *dev,
 	if (ret < 0)
 		return ret;
 
-	ret = write_all(pdata, buf, ret);
-	output(pdata, "\n");
-	return ret;
+	buf[ret - 1] = '\n';
+	return write_all(pdata, buf, ret);
 }
 
 ssize_t write_dev_attr(struct parser_pdata *pdata, struct iio_device *dev,
@@ -857,9 +856,8 @@ ssize_t read_chn_attr(struct parser_pdata *pdata,
 	if (ret < 0)
 		return ret;
 
-	ret = write_all(pdata, buf, ret);
-	output(pdata, "\n");
-	return ret;
+	buf[ret - 1] = '\n';
+	return write_all(pdata, buf, ret);
 }
 
 ssize_t write_chn_attr(struct parser_pdata *pdata,
@@ -922,10 +920,13 @@ ssize_t get_trigger(struct parser_pdata *pdata, struct iio_device *dev)
 
 	ret = iio_device_get_trigger(dev, &trigger);
 	if (!ret && trigger) {
+		char buf[256];
+
 		ret = strlen(trigger->name);
 		print_value(pdata, ret);
-		ret = write_all(pdata, trigger->name, ret);
-		output(pdata, "\n");
+
+		snprintf(buf, sizeof(buf), "%s\n", trigger->name);
+		ret = write_all(pdata, buf, ret + 1);
 	} else {
 		print_value(pdata, ret);
 	}
