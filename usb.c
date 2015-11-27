@@ -26,6 +26,9 @@
 
 #define DEFAULT_TIMEOUT_MS 5000
 
+/* Endpoint for non-streaming operations */
+#define EP_OPS		1
+
 struct iio_context_pdata {
 	libusb_context *ctx;
 	libusb_device_handle *hdl;
@@ -99,7 +102,7 @@ static ssize_t usb_read_value(struct iio_context_pdata *pdata)
 	char buf[256], *end;
 	long value;
 
-	ret = read_data_sync(pdata, 1, buf, sizeof(buf));
+	ret = read_data_sync(pdata, EP_OPS, buf, sizeof(buf));
 	if (ret < 0)
 		return (ssize_t) ret;
 
@@ -116,7 +119,7 @@ static ssize_t usb_exec_command(struct iio_context_pdata *pdata, char *cmd)
 	char buf[256], *end;
 	long value;
 
-	ret = write_data_sync(pdata, 1, cmd, strlen(cmd));
+	ret = write_data_sync(pdata, EP_OPS, cmd, strlen(cmd));
 	if (ret < 0)
 		return (ssize_t) ret;
 
@@ -131,12 +134,12 @@ static int usb_get_version(const struct iio_context *ctx,
 	long maj, min;
 	int ret;
 
-	ret = write_data_sync(pdata, 1,
+	ret = write_data_sync(pdata, EP_OPS,
 			"VERSION\r\n", sizeof("VERSION\r\n") - 1);
 	if (ret < 0)
 		return ret;
 
-	ret = read_data_sync(pdata, 1, buf, sizeof(buf));
+	ret = read_data_sync(pdata, EP_OPS, buf, sizeof(buf));
 	if (ret < 0)
 		return ret;
 
@@ -195,7 +198,7 @@ static ssize_t usb_read_attr_helper(const struct iio_device *dev,
 		return -EIO;
 	}
 
-	ret = (ssize_t) read_data_sync(pdata, 1, dst, read_len);
+	ret = (ssize_t) read_data_sync(pdata, EP_OPS, dst, read_len);
 	if (ret < 0) {
 		ERROR("Unable to read response to READ: %i\n", ret);
 		return ret;
@@ -227,11 +230,11 @@ static ssize_t usb_write_attr_helper(const struct iio_device *dev,
 		snprintf(buf, sizeof(buf), "WRITE %s %s %lu\r\n",
 				id, attr ? attr : "", (unsigned long) len);
 
-	ret = write_data_sync(pdata, 1, buf, strlen(buf));
+	ret = write_data_sync(pdata, EP_OPS, buf, strlen(buf));
 	if (ret < 0)
 		return ret;
 
-	ret = write_data_sync(pdata, 1, (char *) src, len);
+	ret = write_data_sync(pdata, EP_OPS, (char *) src, len);
 	if (ret < 0)
 		return ret;
 
@@ -363,14 +366,14 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 	}
 
 	DEBUG("Reading XML string...\n");
-	ret = read_data_sync(pdata, 1, xml, xml_len);
+	ret = read_data_sync(pdata, EP_OPS, xml, xml_len);
 	if (ret < 0) {
 		ERROR("Unable to read XML string: %i\n", ret);
 		goto err_free_xml;
 	}
 
 	/* Discard \n character */
-	read_data_sync(pdata, 1, buf, 1);
+	read_data_sync(pdata, EP_OPS, buf, 1);
 
 	DEBUG("Creating context from XML...\n");
 	ctx = iio_create_xml_context_mem(xml, xml_len);
