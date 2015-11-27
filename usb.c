@@ -324,6 +324,7 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 
 	ret = libusb_init(&usb_ctx);
 	if (ret) {
+		ret = -libusb_to_errno(ret);
 		ERROR("Unable to init libusb: %i\n", ret);
 		goto err_free_pdata;
 	}
@@ -338,8 +339,9 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 	libusb_set_auto_detach_kernel_driver(hdl, true);
 
 	ret = libusb_claim_interface(hdl, 0);
-	if (ret < 0) {
-		ERROR("Unable to claim interface 0\n");
+	if (ret) {
+		ret = -libusb_to_errno(ret);
+		ERROR("Unable to claim interface 0: %i\n", ret);
 		goto err_libusb_close;
 	}
 
