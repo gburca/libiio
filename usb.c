@@ -276,6 +276,18 @@ static ssize_t usb_write_chn_attr(const struct iio_channel *chn,
 	return usb_write_attr_helper(chn->dev, chn, attr, src, len, false);
 }
 
+static int usb_set_kernel_buffers_count(const struct iio_device *dev,
+		unsigned int nb_blocks)
+{
+	struct iio_context_pdata *pdata = dev->ctx->pdata;
+	char buf[1024];
+
+	snprintf(buf, sizeof(buf), "SET %s BUFFERS_COUNT %u\r\n",
+			dev->id, nb_blocks);
+
+	return (int) usb_exec_command(pdata, buf);
+}
+
 static void usb_shutdown(struct iio_context *ctx)
 {
 	libusb_close(ctx->pdata->hdl);
@@ -288,6 +300,7 @@ static const struct iio_backend_ops usb_ops = {
 	.read_channel_attr = usb_read_chn_attr,
 	.write_device_attr = usb_write_dev_attr,
 	.write_channel_attr = usb_write_chn_attr,
+	.set_kernel_buffers_count = usb_set_kernel_buffers_count,
 	.shutdown = usb_shutdown,
 };
 
