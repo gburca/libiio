@@ -117,6 +117,8 @@ if (LIBUSB_LIBRARIES)
 		add_definitions(-DUSB_BACKEND=1)
 		set(LIBIIO_CFILES ${LIBIIO_CFILES} usb.c)
 		set(LIBS_TO_LINK ${LIBS_TO_LINK} ${LIBUSB_LIBRARIES})
+
+		set(NEED_THREADS 1)
 		set(NEED_LIBXML2 1)
 	endif()
 endif()

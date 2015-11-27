@@ -17,6 +17,7 @@
  * */
 
 #include "debug.h"
+#include "iio-lock.h"
 #include "iio-private.h"
 
 #include <errno.h>
@@ -32,6 +33,9 @@
 struct iio_context_pdata {
 	libusb_context *ctx;
 	libusb_device_handle *hdl;
+
+	/* Lock for non-streaming operations */
+	struct iio_mutex *lock;
 };
 
 static const unsigned int libusb_to_errno_codes[] = {
@@ -134,12 +138,18 @@ static int usb_get_version(const struct iio_context *ctx,
 	long maj, min;
 	int ret;
 
+	iio_mutex_lock(pdata->lock);
+
 	ret = write_data_sync(pdata, EP_OPS,
 			"VERSION\r\n", sizeof("VERSION\r\n") - 1);
-	if (ret < 0)
+	if (ret < 0) {
+		iio_mutex_unlock(pdata->lock);
 		return ret;
+	}
 
 	ret = read_data_sync(pdata, EP_OPS, buf, sizeof(buf));
+
+	iio_mutex_unlock(pdata->lock);
 	if (ret < 0)
 		return ret;
 
@@ -189,16 +199,24 @@ static ssize_t usb_read_attr_helper(const struct iio_device *dev,
 		snprintf(buf, sizeof(buf), "READ %s %s\r\n",
 				id, attr ? attr : "");
 
+	iio_mutex_lock(pdata->lock);
+
 	read_len = usb_exec_command(pdata, buf);
-	if (read_len < 0)
+	if (read_len < 0) {
+		iio_mutex_unlock(pdata->lock);
 		return read_len;
+	}
 
 	if ((size_t) read_len > len) {
+		iio_mutex_unlock(pdata->lock);
+
 		ERROR("Value returned by server is too large\n");
 		return -EIO;
 	}
 
 	ret = (ssize_t) read_data_sync(pdata, EP_OPS, dst, read_len);
+	iio_mutex_unlock(pdata->lock);
+
 	if (ret < 0) {
 		ERROR("Unable to read response to READ: %i\n", ret);
 		return ret;
@@ -230,15 +248,21 @@ static ssize_t usb_write_attr_helper(const struct iio_device *dev,
 		snprintf(buf, sizeof(buf), "WRITE %s %s %lu\r\n",
 				id, attr ? attr : "", (unsigned long) len);
 
+	iio_mutex_lock(pdata->lock);
+
 	ret = write_data_sync(pdata, EP_OPS, buf, strlen(buf));
 	if (ret < 0)
-		return ret;
+		goto out_unlock_mutex;
 
 	ret = write_data_sync(pdata, EP_OPS, (char *) src, len);
 	if (ret < 0)
-		return ret;
+		goto out_unlock_mutex;
 
-	return usb_read_value(pdata);
+	ret = usb_read_value(pdata);
+
+out_unlock_mutex:
+	iio_mutex_unlock(pdata->lock);
+	return ret;
 }
 
 static ssize_t usb_read_dev_attr(const struct iio_device *dev,
@@ -284,15 +308,22 @@ static int usb_set_kernel_buffers_count(const struct iio_device *dev,
 {
 	struct iio_context_pdata *pdata = dev->ctx->pdata;
 	char buf[1024];
+	int ret;
 
 	snprintf(buf, sizeof(buf), "SET %s BUFFERS_COUNT %u\r\n",
 			dev->id, nb_blocks);
 
-	return (int) usb_exec_command(pdata, buf);
+	iio_mutex_lock(pdata->lock);
+	ret = (int) usb_exec_command(pdata, buf);
+	iio_mutex_unlock(pdata->lock);
+
+	return ret;
 }
 
 static void usb_shutdown(struct iio_context *ctx)
 {
+	iio_mutex_destroy(ctx->pdata->lock);
+
 	libusb_close(ctx->pdata->hdl);
 	libusb_exit(ctx->pdata->ctx);
 }
@@ -325,11 +356,18 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 		goto err_set_errno;
 	}
 
+	pdata->lock = iio_mutex_create();
+	if (!pdata->lock) {
+		ERROR("Unable to create mutex\n");
+		ret = -ENOMEM;
+		goto err_free_pdata;
+	}
+
 	ret = libusb_init(&usb_ctx);
 	if (ret) {
 		ret = -libusb_to_errno(ret);
 		ERROR("Unable to init libusb: %i\n", ret);
-		goto err_free_pdata;
+		goto err_destroy_mutex;
 	}
 
 	hdl = libusb_open_device_with_vid_pid(usb_ctx, vid, pid);
@@ -393,6 +431,8 @@ err_libusb_close:
 	libusb_close(hdl);
 err_libusb_exit:
 	libusb_exit(usb_ctx);
+err_destroy_mutex:
+	iio_mutex_destroy(pdata->lock);
 err_free_pdata:
 	free(pdata);
 err_set_errno:
