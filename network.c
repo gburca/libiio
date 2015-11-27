@@ -17,10 +17,7 @@
  * */
 
 #include "iio-private.h"
-
-#ifndef HAVE_PTHREAD
-#define HAVE_PTHREAD 1
-#endif
+#include "iio-lock.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -49,10 +46,6 @@
 #include <unistd.h>
 #endif /* _WIN32 */
 
-#if HAVE_PTHREAD
-#include <pthread.h>
-#endif
-
 #ifdef HAVE_AVAHI
 #include <avahi-client/client.h>
 #include <avahi-common/error.h>
@@ -73,9 +66,7 @@
 struct iio_context_pdata {
 	int fd;
 	struct addrinfo *addrinfo;
-#if HAVE_PTHREAD
-	pthread_mutex_t lock;
-#endif
+	struct iio_mutex *lock;
 };
 
 struct iio_device_pdata {
@@ -86,9 +77,7 @@ struct iio_device_pdata {
 	size_t mmap_len;
 #endif
 	bool wait_for_err_code, is_cyclic, is_tx;
-#if HAVE_PTHREAD
-	pthread_mutex_t lock;
-#endif
+	struct iio_mutex *lock;
 };
 
 #ifdef HAVE_AVAHI
@@ -198,30 +187,22 @@ err_free_poll:
 
 static void network_lock(struct iio_context_pdata *pdata)
 {
-#if HAVE_PTHREAD
-	pthread_mutex_lock(&pdata->lock);
-#endif
+	iio_mutex_lock(pdata->lock);
 }
 
 static void network_unlock(struct iio_context_pdata *pdata)
 {
-#if HAVE_PTHREAD
-	pthread_mutex_unlock(&pdata->lock);
-#endif
+	iio_mutex_unlock(pdata->lock);
 }
 
 static void network_lock_dev(struct iio_device_pdata *pdata)
 {
-#if HAVE_PTHREAD
-	pthread_mutex_lock(&pdata->lock);
-#endif
+	iio_mutex_lock(pdata->lock);
 }
 
 static void network_unlock_dev(struct iio_device_pdata *pdata)
 {
-#if HAVE_PTHREAD
-	pthread_mutex_unlock(&pdata->lock);
-#endif
+	iio_mutex_unlock(pdata->lock);
 }
 
 static ssize_t write_all(const void *src, size_t len, int fd)
@@ -1077,16 +1058,12 @@ static void network_shutdown(struct iio_context *ctx)
 
 		if (dpdata) {
 			network_close(dev);
-#if HAVE_PTHREAD
-			pthread_mutex_destroy(&dpdata->lock);
-#endif
+			iio_mutex_destroy(dpdata->lock);
 			free(dpdata);
 		}
 	}
 
-#if HAVE_PTHREAD
-	pthread_mutex_destroy(&pdata->lock);
-#endif
+	iio_mutex_destroy(pdata->lock);
 	freeaddrinfo(pdata->addrinfo);
 	free(pdata);
 }
@@ -1384,22 +1361,22 @@ struct iio_context * network_create_context(const char *host)
 		dev->pdata->memfd = -1;
 #endif
 
-#if HAVE_PTHREAD
-		ret = pthread_mutex_init(&dev->pdata->lock, NULL);
-		if (ret < 0)
+		dev->pdata->lock = iio_mutex_create();
+		if (!dev->pdata->lock) {
+			ret = -ENOMEM;
 			goto err_free_description;
-#endif
+		}
 	}
 
 	ret = iio_context_init(ctx);
 	if (ret < 0)
 		goto err_free_description;
 
-#if HAVE_PTHREAD
-	ret = pthread_mutex_init(&pdata->lock, NULL);
-	if (ret < 0)
+	pdata->lock = iio_mutex_create();
+	if (!pdata->lock) {
+		ret = -ENOMEM;
 		goto err_free_description;
-#endif
+	}
 
 	if (ctx->description) {
 		size_t desc_len = strlen(description);
