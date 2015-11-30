@@ -100,13 +100,13 @@ static int read_data_sync(struct iio_context_pdata *pdata,
 		return transferred;
 }
 
-static ssize_t usb_read_value(struct iio_context_pdata *pdata)
+static ssize_t usb_read_value(struct iio_context_pdata *pdata, unsigned int ep)
 {
 	int ret;
 	char buf[256], *end;
 	long value;
 
-	ret = read_data_sync(pdata, EP_OPS, buf, sizeof(buf));
+	ret = read_data_sync(pdata, ep, buf, sizeof(buf));
 	if (ret < 0)
 		return (ssize_t) ret;
 
@@ -117,17 +117,18 @@ static ssize_t usb_read_value(struct iio_context_pdata *pdata)
 	return (ssize_t) value;
 }
 
-static ssize_t usb_exec_command(struct iio_context_pdata *pdata, char *cmd)
+static ssize_t usb_exec_command(struct iio_context_pdata *pdata,
+		unsigned int ep, char *cmd)
 {
 	int ret;
 	char buf[256], *end;
 	long value;
 
-	ret = write_data_sync(pdata, EP_OPS, cmd, strlen(cmd));
+	ret = write_data_sync(pdata, ep, cmd, strlen(cmd));
 	if (ret < 0)
 		return (ssize_t) ret;
 
-	return usb_read_value(pdata);
+	return usb_read_value(pdata, ep);
 }
 
 static int usb_get_version(const struct iio_context *ctx,
@@ -201,7 +202,7 @@ static ssize_t usb_read_attr_helper(const struct iio_device *dev,
 
 	iio_mutex_lock(pdata->lock);
 
-	read_len = usb_exec_command(pdata, buf);
+	read_len = usb_exec_command(pdata, EP_OPS, buf);
 	if (read_len < 0) {
 		iio_mutex_unlock(pdata->lock);
 		return read_len;
@@ -258,7 +259,7 @@ static ssize_t usb_write_attr_helper(const struct iio_device *dev,
 	if (ret < 0)
 		goto out_unlock_mutex;
 
-	ret = usb_read_value(pdata);
+	ret = usb_read_value(pdata, EP_OPS);
 
 out_unlock_mutex:
 	iio_mutex_unlock(pdata->lock);
@@ -314,7 +315,7 @@ static int usb_set_kernel_buffers_count(const struct iio_device *dev,
 			dev->id, nb_blocks);
 
 	iio_mutex_lock(pdata->lock);
-	ret = (int) usb_exec_command(pdata, buf);
+	ret = (int) usb_exec_command(pdata, EP_OPS, buf);
 	iio_mutex_unlock(pdata->lock);
 
 	return ret;
@@ -390,7 +391,7 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 	pdata->hdl = hdl;
 
 	DEBUG("Sending PRINT command\n");
-	xml_len = usb_exec_command(pdata, "PRINT\r\n");
+	xml_len = usb_exec_command(pdata, EP_OPS, "PRINT\r\n");
 	if (xml_len < 0) {
 		ERROR("Unable to send print command: %i\n", ret);
 		goto err_libusb_close;
