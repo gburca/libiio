@@ -120,6 +120,7 @@ if (LIBUSB_LIBRARIES)
 
 		set(NEED_THREADS 1)
 		set(NEED_LIBXML2 1)
+		set(IIOD_CLIENT 1)
 	endif()
 endif()
 
@@ -153,6 +154,7 @@ if(WITH_NETWORK_BACKEND)
 
 	set(NEED_THREADS 1)
 	set(NEED_LIBXML2 1)
+	set(IIOD_CLIENT 1)
 endif()
 
 if (NEED_LIBXML2)
@@ -181,6 +183,10 @@ if (NEED_THREADS)
 	else()
 		set(LIBIIO_CFILES ${LIBIIO_CFILES} lock.c)
 	endif()
+endif()
+
+if (IIOD_CLIENT)
+	set(LIBIIO_CFILES ${LIBIIO_CFILES} iiod-client.c)
 endif()
 
 configure_file(libiio.iss.cmakein ${CMAKE_CURRENT_BINARY_DIR}/libiio.iss @ONLY)
