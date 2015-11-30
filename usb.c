@@ -91,20 +91,20 @@ static unsigned int libusb_to_errno(int error)
 	}
 }
 
-static int write_data_sync(struct iio_context_pdata *pdata,
-		int ep, char *data, size_t len)
+static ssize_t write_data_sync(struct iio_context_pdata *pdata,
+		int ep, const char *data, size_t len)
 {
 	int transferred, ret;
 
 	ret = libusb_bulk_transfer(pdata->hdl, ep | LIBUSB_ENDPOINT_OUT,
-			data, len, &transferred, DEFAULT_TIMEOUT_MS);
+			(char *) data, len, &transferred, DEFAULT_TIMEOUT_MS);
 	if (ret)
 		return -libusb_to_errno(ret);
 	else
 		return transferred != len ? -EIO : len;
 }
 
-static int read_data_sync(struct iio_context_pdata *pdata,
+static ssize_t read_data_sync(struct iio_context_pdata *pdata,
 		int ep, char *buf, size_t len)
 {
 	int transferred, ret;
@@ -119,13 +119,13 @@ static int read_data_sync(struct iio_context_pdata *pdata,
 
 static ssize_t usb_read_value(struct iio_context_pdata *pdata, unsigned int ep)
 {
-	int ret;
+	ssize_t ret;
 	char buf[256], *end;
 	long value;
 
 	ret = read_data_sync(pdata, ep, buf, sizeof(buf));
 	if (ret < 0)
-		return (ssize_t) ret;
+		return ret;
 
 	value = strtol(buf, &end, 10);
 	if (buf == end)
@@ -137,13 +137,13 @@ static ssize_t usb_read_value(struct iio_context_pdata *pdata, unsigned int ep)
 static ssize_t usb_exec_command(struct iio_context_pdata *pdata,
 		unsigned int ep, char *cmd)
 {
-	int ret;
+	ssize_t ret;
 	char buf[256], *end;
 	long value;
 
 	ret = write_data_sync(pdata, ep, cmd, strlen(cmd));
 	if (ret < 0)
-		return (ssize_t) ret;
+		return ret;
 
 	return usb_read_value(pdata, ep);
 }
@@ -154,7 +154,7 @@ static int usb_get_version(const struct iio_context *ctx,
 	struct iio_context_pdata *pdata = ctx->pdata;
 	char buf[256], *ptr = buf, *end;
 	long maj, min;
-	int ret;
+	ssize_t ret;
 
 	iio_mutex_lock(pdata->lock);
 
@@ -162,14 +162,14 @@ static int usb_get_version(const struct iio_context *ctx,
 			"VERSION\r\n", sizeof("VERSION\r\n") - 1);
 	if (ret < 0) {
 		iio_mutex_unlock(pdata->lock);
-		return ret;
+		return (int) ret;
 	}
 
 	ret = read_data_sync(pdata, EP_OPS, buf, sizeof(buf));
 
 	iio_mutex_unlock(pdata->lock);
 	if (ret < 0)
-		return ret;
+		return (int) ret;
 
 	maj = strtol(ptr, &end, 10);
 	if (ptr == end)
@@ -284,7 +284,7 @@ static ssize_t usb_read_attr_helper(const struct iio_device *dev,
 	}
 
 	/* +1: Also read the trailing \n */
-	ret = (ssize_t) read_data_sync(pdata, EP_OPS, dst, read_len + 1);
+	ret = read_data_sync(pdata, EP_OPS, dst, read_len + 1);
 	iio_mutex_unlock(pdata->lock);
 
 	if (ret < 0) {
@@ -323,7 +323,7 @@ static ssize_t usb_write_attr_helper(const struct iio_device *dev,
 	if (ret < 0)
 		goto out_unlock_mutex;
 
-	ret = write_data_sync(pdata, EP_OPS, (char *) src, len);
+	ret = write_data_sync(pdata, EP_OPS, src, len);
 	if (ret < 0)
 		goto out_unlock_mutex;
 
@@ -492,7 +492,7 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 	}
 
 	DEBUG("Reading XML string...\n");
-	ret = read_data_sync(pdata, EP_OPS, xml, xml_len);
+	ret = (int) read_data_sync(pdata, EP_OPS, xml, xml_len);
 	if (ret < 0) {
 		ERROR("Unable to read XML string: %i\n", ret);
 		goto err_free_xml;
