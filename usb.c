@@ -276,14 +276,15 @@ static ssize_t usb_read_attr_helper(const struct iio_device *dev,
 		return read_len;
 	}
 
-	if ((size_t) read_len > len) {
+	if ((size_t) read_len + 1 > len) {
 		iio_mutex_unlock(pdata->lock);
 
 		ERROR("Value returned by server is too large\n");
 		return -EIO;
 	}
 
-	ret = (ssize_t) read_data_sync(pdata, EP_OPS, dst, read_len);
+	/* +1: Also read the trailing \n */
+	ret = (ssize_t) read_data_sync(pdata, EP_OPS, dst, read_len + 1);
 	iio_mutex_unlock(pdata->lock);
 
 	if (ret < 0) {
@@ -291,8 +292,7 @@ static ssize_t usb_read_attr_helper(const struct iio_device *dev,
 		return ret;
 	}
 
-	dst[ret - 1] = '\0';
-	return ret;
+	return read_len;
 }
 
 static ssize_t usb_write_attr_helper(const struct iio_device *dev,
