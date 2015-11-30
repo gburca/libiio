@@ -424,7 +424,17 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 	ctx->ops = &usb_ops;
 	ctx->pdata = pdata;
 
+	DEBUG("Initializing context...\n");
+	ret = iio_context_init(ctx);
+	if (ret < 0)
+		goto err_context_destroy;
+
 	return ctx;
+
+err_context_destroy:
+	iio_context_destroy(ctx);
+	errno = -ret;
+	return NULL;
 
 err_free_xml:
 	free(xml);
