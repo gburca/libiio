@@ -800,15 +800,16 @@ ssize_t read_dev_attr(struct parser_pdata *pdata, struct iio_device *dev,
 	}
 
 	if (is_debug)
-		ret = iio_device_debug_attr_read(dev, attr, buf, sizeof(buf));
+		ret = iio_device_debug_attr_read(dev,
+				attr, buf, sizeof(buf) - 1);
 	else
-		ret = iio_device_attr_read(dev, attr, buf, sizeof(buf));
+		ret = iio_device_attr_read(dev, attr, buf, sizeof(buf) - 1);
 	print_value(pdata, ret);
 	if (ret < 0)
 		return ret;
 
-	buf[ret - 1] = '\n';
-	return write_all(pdata, buf, ret);
+	buf[ret] = '\n';
+	return write_all(pdata, buf, ret + 1);
 }
 
 ssize_t write_dev_attr(struct parser_pdata *pdata, struct iio_device *dev,
@@ -849,15 +850,15 @@ ssize_t read_chn_attr(struct parser_pdata *pdata,
 	ssize_t ret = -ENODEV;
 
 	if (chn)
-		ret = iio_channel_attr_read(chn, attr, buf, sizeof(buf));
+		ret = iio_channel_attr_read(chn, attr, buf, sizeof(buf) - 1);
 	else if (pdata->dev)
 		ret = -ENXIO;
 	print_value(pdata, ret);
 	if (ret < 0)
 		return ret;
 
-	buf[ret - 1] = '\n';
-	return write_all(pdata, buf, ret);
+	buf[ret] = '\n';
+	return write_all(pdata, buf, ret + 1);
 }
 
 ssize_t write_chn_attr(struct parser_pdata *pdata,
