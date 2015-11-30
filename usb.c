@@ -30,12 +30,29 @@
 /* Endpoint for non-streaming operations */
 #define EP_OPS		1
 
+/* Endpoint for input devices */
+#define EP_INPUT	2
+
+/* Endpoint for output devices */
+#define EP_OUTPUT	3
+
 struct iio_context_pdata {
 	libusb_context *ctx;
 	libusb_device_handle *hdl;
 
 	/* Lock for non-streaming operations */
 	struct iio_mutex *lock;
+
+	/* Locks for input/output devices */
+	struct iio_mutex *i_lock, *o_lock;
+};
+
+struct iio_device_pdata {
+	bool is_tx;
+	struct iio_mutex *lock;
+
+	bool opened;
+	unsigned int ep;
 };
 
 static const unsigned int libusb_to_errno_codes[] = {
@@ -177,6 +194,57 @@ static int usb_get_version(const struct iio_context *ctx,
 	if (git_tag)
 		strncpy(git_tag, ptr, 8);
 	return 0;
+}
+
+static int usb_open(const struct iio_device *dev,
+		size_t samples_count, bool cyclic)
+{
+	struct iio_device_pdata *pdata = dev->pdata;
+	char buf[1024], *ptr;
+	size_t i;
+	int ret = -EBUSY;
+
+	snprintf(buf, sizeof(buf), "OPEN %s %lu ",
+			dev->id, (unsigned long) samples_count);
+	ptr = buf + strlen(buf);
+
+	for (i = dev->words; i > 0; i--, ptr += 8)
+		snprintf(ptr, (ptr - buf) + i * 8, "%08x", dev->mask[i - 1]);
+
+	strcpy(ptr, cyclic ? " CYCLIC\r\n" : "\r\n");
+
+	iio_mutex_lock(pdata->lock);
+	if (pdata->opened)
+		goto out_unlock;
+
+	ret = usb_exec_command(dev->ctx->pdata, pdata->ep, buf);
+	if (ret < 0)
+		goto out_unlock;
+
+	pdata->opened = true;
+
+out_unlock:
+	iio_mutex_unlock(pdata->lock);
+	return ret;
+}
+
+static int usb_close(const struct iio_device *dev)
+{
+	struct iio_device_pdata *pdata = dev->pdata;
+	int ret = -EBADF;
+	char buf[1024];
+
+	iio_mutex_lock(pdata->lock);
+	if (!pdata->opened)
+		goto out_unlock;
+
+	snprintf(buf, sizeof(buf), "CLOSE %s\r\n", dev->id);
+
+	ret = usb_exec_command(dev->ctx->pdata, pdata->ep, buf);
+
+out_unlock:
+	iio_mutex_unlock(pdata->lock);
+	return ret;
 }
 
 static ssize_t usb_read_attr_helper(const struct iio_device *dev,
@@ -324,6 +392,8 @@ static int usb_set_kernel_buffers_count(const struct iio_device *dev,
 static void usb_shutdown(struct iio_context *ctx)
 {
 	iio_mutex_destroy(ctx->pdata->lock);
+	iio_mutex_destroy(ctx->pdata->o_lock);
+	iio_mutex_destroy(ctx->pdata->i_lock);
 
 	libusb_close(ctx->pdata->hdl);
 	libusb_exit(ctx->pdata->ctx);
@@ -331,6 +401,8 @@ static void usb_shutdown(struct iio_context *ctx)
 
 static const struct iio_backend_ops usb_ops = {
 	.get_version = usb_get_version,
+	.open = usb_open,
+	.close = usb_close,
 	.read_device_attr = usb_read_dev_attr,
 	.read_channel_attr = usb_read_chn_attr,
 	.write_device_attr = usb_write_dev_attr,
@@ -345,6 +417,7 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 	libusb_device_handle *hdl;
 	struct iio_context *ctx;
 	struct iio_context_pdata *pdata;
+	unsigned int i;
 	int ret, transferred;
 	char buf[256];
 	ssize_t xml_len;
@@ -364,11 +437,25 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 		goto err_free_pdata;
 	}
 
+	pdata->i_lock = iio_mutex_create();
+	if (!pdata->i_lock) {
+		ERROR("Unable to create mutex\n");
+		ret = -ENOMEM;
+		goto err_destroy_mutex;
+	}
+
+	pdata->o_lock = iio_mutex_create();
+	if (!pdata->o_lock) {
+		ERROR("Unable to create mutex\n");
+		ret = -ENOMEM;
+		goto err_destroy_i_mutex;
+	}
+
 	ret = libusb_init(&usb_ctx);
 	if (ret) {
 		ret = -libusb_to_errno(ret);
 		ERROR("Unable to init libusb: %i\n", ret);
-		goto err_destroy_mutex;
+		goto err_destroy_o_mutex;
 	}
 
 	hdl = libusb_open_device_with_vid_pid(usb_ctx, vid, pid);
@@ -429,6 +516,27 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 	if (ret < 0)
 		goto err_context_destroy;
 
+	for (i = 0; i < ctx->nb_devices; i++) {
+		struct iio_device *dev = ctx->devices[i];
+
+		dev->pdata = calloc(1, sizeof(*dev->pdata));
+		if (!dev->pdata) {
+			ERROR("Unable to allocate memory\n");
+			ret = -ENOMEM;
+			goto err_context_destroy;
+		}
+
+		dev->pdata->is_tx = iio_device_is_tx(dev);
+
+		if (dev->pdata->is_tx) {
+			dev->pdata->lock = pdata->o_lock;
+			dev->pdata->ep = EP_OUTPUT;
+		} else {
+			dev->pdata->lock = pdata->i_lock;
+			dev->pdata->ep = EP_INPUT;
+		}
+	}
+
 	return ctx;
 
 err_context_destroy:
@@ -442,6 +550,10 @@ err_libusb_close:
 	libusb_close(hdl);
 err_libusb_exit:
 	libusb_exit(usb_ctx);
+err_destroy_o_mutex:
+	iio_mutex_destroy(pdata->o_lock);
+err_destroy_i_mutex:
+	iio_mutex_destroy(pdata->i_lock);
 err_destroy_mutex:
 	iio_mutex_destroy(pdata->lock);
 err_free_pdata:
