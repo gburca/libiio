@@ -19,6 +19,7 @@
 #include "debug.h"
 #include "iio-lock.h"
 #include "iio-private.h"
+#include "iiod-client.h"
 
 #include <errno.h>
 #include <libusb-1.0/libusb.h>
@@ -39,6 +40,8 @@
 struct iio_context_pdata {
 	libusb_context *ctx;
 	libusb_device_handle *hdl;
+
+	struct iiod_client *iiod_client;
 
 	/* Lock for non-streaming operations */
 	struct iio_mutex *lock;
@@ -394,6 +397,7 @@ static void usb_shutdown(struct iio_context *ctx)
 	iio_mutex_destroy(ctx->pdata->lock);
 	iio_mutex_destroy(ctx->pdata->o_lock);
 	iio_mutex_destroy(ctx->pdata->i_lock);
+	iiod_client_destroy(ctx->pdata->iiod_client);
 
 	libusb_close(ctx->pdata->hdl);
 	libusb_exit(ctx->pdata->ctx);
@@ -409,6 +413,12 @@ static const struct iio_backend_ops usb_ops = {
 	.write_channel_attr = usb_write_chn_attr,
 	.set_kernel_buffers_count = usb_set_kernel_buffers_count,
 	.shutdown = usb_shutdown,
+};
+
+static struct iiod_client_ops usb_iiod_client_ops = {
+	.write = write_data_sync,
+	.read = read_data_sync,
+	.read_line = read_data_sync,
 };
 
 struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
@@ -437,11 +447,19 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 		goto err_free_pdata;
 	}
 
+	pdata->iiod_client = iiod_client_new(pdata, pdata->lock,
+			&usb_iiod_client_ops);
+	if (!pdata->iiod_client) {
+		ERROR("Unable to create IIOD client\n");
+		ret = -errno;
+		goto err_destroy_mutex;
+	}
+
 	pdata->i_lock = iio_mutex_create();
 	if (!pdata->i_lock) {
 		ERROR("Unable to create mutex\n");
 		ret = -ENOMEM;
-		goto err_destroy_mutex;
+		goto err_destroy_iiod_client;
 	}
 
 	pdata->o_lock = iio_mutex_create();
@@ -554,6 +572,8 @@ err_destroy_o_mutex:
 	iio_mutex_destroy(pdata->o_lock);
 err_destroy_i_mutex:
 	iio_mutex_destroy(pdata->i_lock);
+err_destroy_iiod_client:
+	iiod_client_destroy(pdata->iiod_client);
 err_destroy_mutex:
 	iio_mutex_destroy(pdata->lock);
 err_free_pdata:
