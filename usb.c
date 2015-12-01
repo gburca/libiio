@@ -428,10 +428,7 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 	struct iio_context *ctx;
 	struct iio_context_pdata *pdata;
 	unsigned int i;
-	int ret, transferred;
-	char buf[256];
-	ssize_t xml_len;
-	char *xml, *end;
+	int ret;
 
 	pdata = calloc(1, sizeof(*pdata));
 	if (!pdata) {
@@ -495,33 +492,7 @@ struct iio_context * usb_create_context(unsigned short vid, unsigned short pid)
 	pdata->ctx = usb_ctx;
 	pdata->hdl = hdl;
 
-	DEBUG("Sending PRINT command\n");
-	xml_len = usb_exec_command(pdata, EP_OPS, "PRINT\r\n");
-	if (xml_len < 0) {
-		ERROR("Unable to send print command: %i\n", ret);
-		goto err_libusb_close;
-	}
-
-	xml = malloc((size_t) xml_len);
-	if (!xml) {
-		ERROR("Unable to allocate XML string\n");
-		ret = -ENOMEM;
-		goto err_libusb_close;
-	}
-
-	DEBUG("Reading XML string...\n");
-	ret = (int) read_data_sync(pdata, EP_OPS, xml, xml_len);
-	if (ret < 0) {
-		ERROR("Unable to read XML string: %i\n", ret);
-		goto err_free_xml;
-	}
-
-	/* Discard \n character */
-	read_data_sync(pdata, EP_OPS, buf, 1);
-
-	DEBUG("Creating context from XML...\n");
-	ctx = iio_create_xml_context_mem(xml, xml_len);
-	free(xml);
+	ctx = iiod_client_create_context(pdata->iiod_client, EP_OPS);
 	if (!ctx)
 		goto err_libusb_close;
 
@@ -562,8 +533,6 @@ err_context_destroy:
 	errno = -ret;
 	return NULL;
 
-err_free_xml:
-	free(xml);
 err_libusb_close:
 	libusb_close(hdl);
 err_libusb_exit:
