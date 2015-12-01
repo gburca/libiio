@@ -209,129 +209,40 @@ out_unlock:
 	return ret;
 }
 
-static ssize_t usb_read_attr_helper(const struct iio_device *dev,
-		const struct iio_channel *chn, const char *attr, char *dst,
-		size_t len, bool is_debug)
-{
-	struct iio_context_pdata *pdata = dev->ctx->pdata;
-	ssize_t read_len;
-	ssize_t ret;
-	char buf[1024];
-	const char *id = dev->id;
-
-	if (chn)
-		snprintf(buf, sizeof(buf), "READ %s %s %s %s\r\n", id,
-				chn->is_output ? "OUTPUT" : "INPUT",
-				chn->id, attr ? attr : "");
-	else if (is_debug)
-		snprintf(buf, sizeof(buf), "READ %s DEBUG %s\r\n",
-				id, attr ? attr : "");
-	else
-		snprintf(buf, sizeof(buf), "READ %s %s\r\n",
-				id, attr ? attr : "");
-
-	iio_mutex_lock(pdata->lock);
-
-	read_len = usb_exec_command(pdata, EP_OPS, buf);
-	if (read_len < 0) {
-		iio_mutex_unlock(pdata->lock);
-		return read_len;
-	}
-
-	if ((size_t) read_len + 1 > len) {
-		iio_mutex_unlock(pdata->lock);
-
-		ERROR("Value returned by server is too large\n");
-		return -EIO;
-	}
-
-	/* +1: Also read the trailing \n */
-	ret = read_data_sync(pdata, EP_OPS, dst, read_len + 1);
-	iio_mutex_unlock(pdata->lock);
-
-	if (ret < 0) {
-		ERROR("Unable to read response to READ: %i\n", ret);
-		return ret;
-	}
-
-	return read_len;
-}
-
-static ssize_t usb_write_attr_helper(const struct iio_device *dev,
-		const struct iio_channel *chn, const char *attr,
-		const char *src, size_t len, bool is_debug)
-{
-	struct iio_context_pdata *pdata = dev->ctx->pdata;
-	ssize_t read_len;
-	ssize_t ret;
-	char buf[1024];
-	const char *id = dev->id;
-	long resp;
-
-	if (chn)
-		snprintf(buf, sizeof(buf), "WRITE %s %s %s %s %lu\r\n",
-				id, chn->is_output ? "OUTPUT" : "INPUT",
-				chn->id, attr ? attr : "", (unsigned long) len);
-	else if (is_debug)
-		snprintf(buf, sizeof(buf), "WRITE %s DEBUG %s %lu\r\n",
-				id, attr ? attr : "", (unsigned long) len);
-	else
-		snprintf(buf, sizeof(buf), "WRITE %s %s %lu\r\n",
-				id, attr ? attr : "", (unsigned long) len);
-
-	iio_mutex_lock(pdata->lock);
-
-	ret = write_data_sync(pdata, EP_OPS, buf, strlen(buf));
-	if (ret < 0)
-		goto out_unlock_mutex;
-
-	ret = write_data_sync(pdata, EP_OPS, src, len);
-	if (ret < 0)
-		goto out_unlock_mutex;
-
-	ret = usb_read_value(pdata, EP_OPS);
-
-out_unlock_mutex:
-	iio_mutex_unlock(pdata->lock);
-	return ret;
-}
-
 static ssize_t usb_read_dev_attr(const struct iio_device *dev,
 		const char *attr, char *dst, size_t len, bool is_debug)
 {
-	if (attr && ((is_debug && !iio_device_find_debug_attr(dev, attr)) ||
-			(!is_debug && !iio_device_find_attr(dev, attr))))
-		return -ENOENT;
+	struct iio_context_pdata *pdata = dev->ctx->pdata;
 
-	return usb_read_attr_helper(dev, NULL, attr, dst, len, is_debug);
+	return iiod_client_read_attr(pdata->iiod_client, EP_OPS, dev,
+			NULL, attr, dst, len, is_debug);
 }
 
 static ssize_t usb_write_dev_attr(const struct iio_device *dev,
 		const char *attr, const char *src, size_t len, bool is_debug)
 {
-	if (attr && ((is_debug && !iio_device_find_debug_attr(dev, attr)) ||
-			(!is_debug && !iio_device_find_attr(dev, attr))))
-		return -ENOENT;
+	struct iio_context_pdata *pdata = dev->ctx->pdata;
 
-	return usb_write_attr_helper(dev, NULL, attr, src, len, is_debug);
+	return iiod_client_write_attr(pdata->iiod_client, EP_OPS, dev,
+			NULL, attr, src, len, is_debug);
 }
 
 static ssize_t usb_read_chn_attr(const struct iio_channel *chn,
 		const char *attr, char *dst, size_t len)
 {
-	if (attr && !iio_channel_find_attr(chn, attr))
-		return -ENOENT;
+	struct iio_context_pdata *pdata = chn->dev->ctx->pdata;
 
-	return usb_read_attr_helper(chn->dev, chn, attr, dst, len, false);
+	return iiod_client_read_attr(pdata->iiod_client, EP_OPS, chn->dev,
+			chn, attr, dst, len, false);
 }
 
 static ssize_t usb_write_chn_attr(const struct iio_channel *chn,
 		const char *attr, const char *src, size_t len)
 {
-	if (attr && !iio_channel_find_attr(chn, attr))
-		return -ENOENT;
+	struct iio_context_pdata *pdata = chn->dev->ctx->pdata;
 
-	return usb_write_attr_helper(chn->dev, chn, attr, src, len, false);
+	return iiod_client_write_attr(pdata->iiod_client, EP_OPS, chn->dev,
+			chn, attr, src, len, false);
 }
 
 static int usb_set_kernel_buffers_count(const struct iio_device *dev,
