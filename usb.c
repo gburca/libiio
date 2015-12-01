@@ -154,49 +154,8 @@ static ssize_t usb_exec_command(struct iio_context_pdata *pdata,
 static int usb_get_version(const struct iio_context *ctx,
 		unsigned int *major, unsigned int *minor, char git_tag[8])
 {
-	struct iio_context_pdata *pdata = ctx->pdata;
-	char buf[256], *ptr = buf, *end;
-	long maj, min;
-	ssize_t ret;
-
-	iio_mutex_lock(pdata->lock);
-
-	ret = write_data_sync(pdata, EP_OPS,
-			"VERSION\r\n", sizeof("VERSION\r\n") - 1);
-	if (ret < 0) {
-		iio_mutex_unlock(pdata->lock);
-		return (int) ret;
-	}
-
-	ret = read_data_sync(pdata, EP_OPS, buf, sizeof(buf));
-
-	iio_mutex_unlock(pdata->lock);
-	if (ret < 0)
-		return (int) ret;
-
-	maj = strtol(ptr, &end, 10);
-	if (ptr == end)
-		return -EIO;
-
-	ptr = end + 1;
-	min = strtol(ptr, &end, 10);
-	if (ptr == end)
-		return -EIO;
-
-	ptr = end + 1;
-	if (buf + ret < ptr + 8)
-		return -EIO;
-
-	/* Strip the \n */
-	ptr[buf + ret - ptr - 1] = '\0';
-
-	if (major)
-		*major = (unsigned int) maj;
-	if (minor)
-		*minor = (unsigned int) min;
-	if (git_tag)
-		strncpy(git_tag, ptr, 8);
-	return 0;
+	return iiod_client_get_version(ctx->pdata->iiod_client,
+			EP_OPS, major, minor, git_tag);
 }
 
 static int usb_open(const struct iio_device *dev,
