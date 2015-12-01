@@ -162,30 +162,16 @@ static int usb_open(const struct iio_device *dev,
 		size_t samples_count, bool cyclic)
 {
 	struct iio_device_pdata *pdata = dev->pdata;
-	char buf[1024], *ptr;
-	size_t i;
 	int ret = -EBUSY;
 
-	snprintf(buf, sizeof(buf), "OPEN %s %lu ",
-			dev->id, (unsigned long) samples_count);
-	ptr = buf + strlen(buf);
-
-	for (i = dev->words; i > 0; i--, ptr += 8)
-		snprintf(ptr, (ptr - buf) + i * 8, "%08x", dev->mask[i - 1]);
-
-	strcpy(ptr, cyclic ? " CYCLIC\r\n" : "\r\n");
-
 	iio_mutex_lock(pdata->lock);
-	if (pdata->opened)
-		goto out_unlock;
 
-	ret = usb_exec_command(dev->ctx->pdata, pdata->ep, buf);
-	if (ret < 0)
-		goto out_unlock;
+	if (!pdata->opened) {
+		ret = iiod_client_open_unlocked(dev->ctx->pdata->iiod_client,
+				pdata->ep, dev, samples_count, cyclic);
+		pdata->opened = !ret;
+	}
 
-	pdata->opened = true;
-
-out_unlock:
 	iio_mutex_unlock(pdata->lock);
 	return ret;
 }
@@ -194,17 +180,14 @@ static int usb_close(const struct iio_device *dev)
 {
 	struct iio_device_pdata *pdata = dev->pdata;
 	int ret = -EBADF;
-	char buf[1024];
 
 	iio_mutex_lock(pdata->lock);
-	if (!pdata->opened)
-		goto out_unlock;
+	if (pdata->opened) {
+		ret = iiod_client_close_unlocked(dev->ctx->pdata->iiod_client,
+				pdata->ep, dev);
+		pdata->opened = false;
+	}
 
-	snprintf(buf, sizeof(buf), "CLOSE %s\r\n", dev->id);
-
-	ret = usb_exec_command(dev->ctx->pdata, pdata->ep, buf);
-
-out_unlock:
 	iio_mutex_unlock(pdata->lock);
 	return ret;
 }
