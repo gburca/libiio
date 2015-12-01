@@ -249,17 +249,9 @@ static int usb_set_kernel_buffers_count(const struct iio_device *dev,
 		unsigned int nb_blocks)
 {
 	struct iio_context_pdata *pdata = dev->ctx->pdata;
-	char buf[1024];
-	int ret;
 
-	snprintf(buf, sizeof(buf), "SET %s BUFFERS_COUNT %u\r\n",
-			dev->id, nb_blocks);
-
-	iio_mutex_lock(pdata->lock);
-	ret = (int) usb_exec_command(pdata, EP_OPS, buf);
-	iio_mutex_unlock(pdata->lock);
-
-	return ret;
+	return iiod_client_set_kernel_buffers_count(pdata->iiod_client,
+			EP_OPS, dev, nb_blocks);
 }
 
 static void usb_shutdown(struct iio_context *ctx)
