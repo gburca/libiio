@@ -464,16 +464,11 @@ static int iiod_client_read_mask(struct iiod_client *client,
 	if (!buf)
 		return -ENOMEM;
 
-	ret = client->ops->read(client->pdata, desc, buf, words * 8 + 1);
+	ret = iiod_client_read_all(client, desc, buf, words * 8 + 1);
 	if (ret < 0)
 		goto out_buf_free;
-
-	if (ret != words * 8 + 1) {
-		ret = -EIO;
-		goto out_buf_free;
-	} else {
+	else
 		ret = 0;
-	}
 
 	DEBUG("Reading mask\n");
 
