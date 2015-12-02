@@ -421,8 +421,6 @@ static int network_open(const struct iio_device *dev,
 {
 	struct iio_context_pdata *pdata = dev->ctx->pdata;
 	struct iio_device_pdata *ppdata = dev->pdata;
-	char buf[1024], *ptr;
-	size_t i;
 	int fd, ret = -EBUSY;
 
 	iio_mutex_lock(ppdata->lock);

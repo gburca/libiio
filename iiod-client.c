@@ -430,7 +430,6 @@ int iiod_client_open_unlocked(struct iiod_client *client, int desc,
 {
 	char buf[1024], *ptr;
 	size_t i;
-	int ret;
 
 	snprintf(buf, sizeof(buf), "OPEN %s %lu ",
 			iio_device_get_id(dev), (unsigned long) samples_count);
@@ -456,7 +455,7 @@ int iiod_client_close_unlocked(struct iiod_client *client, int desc,
 static int iiod_client_read_mask(struct iiod_client *client,
 		int desc, uint32_t *mask, size_t words)
 {
-	size_t i, read_len;
+	size_t i;
 	ssize_t ret;
 	char *buf, *ptr;
 
