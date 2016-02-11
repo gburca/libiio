@@ -71,6 +71,8 @@ static void quit_all(int sig)
 {
 	exit_code = sig;
 	app_running = false;
+	if (buffer)
+		iio_buffer_cancel(buffer);
 }
 
 static void set_handler(int signal_nb, void (*handler)(int))
@@ -266,10 +268,13 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
+	iio_buffer_set_cancellable(buffer, true);
+
 	while (app_running) {
 		int ret = iio_buffer_refill(buffer);
 		if (ret < 0) {
-			fprintf(stderr, "Unable to refill buffer: %s\n",
+			if (app_running)
+				fprintf(stderr, "Unable to refill buffer: %s\n",
 					strerror(-ret));
 			break;
 		}

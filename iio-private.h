@@ -78,6 +78,9 @@ struct iio_backend_ops {
 	int (*get_fd)(const struct iio_device *dev);
 	int (*set_blocking_mode)(const struct iio_device *dev, bool blocking);
 
+	int (*set_cancellable)(const struct iio_device *dev, bool cancellable);
+	void (*cancel)(const struct iio_device *dev);
+
 	int (*set_kernel_buffers_count)(const struct iio_device *dev,
 			unsigned int nb_blocks);
 	ssize_t (*get_buffer)(const struct iio_device *dev,
@@ -105,6 +108,7 @@ struct iio_backend_ops {
 			unsigned int *minor, char git_tag[8]);
 
 	int (*set_timeout)(struct iio_context *ctx, unsigned int timeout);
+
 };
 
 struct iio_context_pdata;
