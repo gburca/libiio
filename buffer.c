@@ -302,3 +302,21 @@ const struct iio_device * iio_buffer_get_device(const struct iio_buffer *buf)
 {
 	return buf->dev;
 }
+
+int iio_buffer_set_cancellable(struct iio_buffer *buf, bool cancellable)
+{
+	const struct iio_backend_ops *ops = buf->dev->ctx->ops;
+
+	if (!ops->set_cancellable)
+		return -ENOSYS;
+
+	return ops->set_cancellable(buf->dev, cancellable);
+}
+
+void iio_buffer_cancel(struct iio_buffer *buf)
+{
+	const struct iio_backend_ops *ops = buf->dev->ctx->ops;
+
+	if (ops->cancel)
+		ops->cancel(buf->dev);
+}
