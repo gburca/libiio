@@ -37,6 +37,7 @@ static const struct option options[] = {
 	  {"xml", required_argument, 0, 'x'},
 	  {"network", required_argument, 0, 'n'},
 	  {"uri", required_argument, 0, 'u'},
+	  {"scan", no_argument, 0, 's'},
 	  {0, 0, 0, 0},
 };
 
@@ -45,6 +46,7 @@ static const char *options_descriptions[] = {
 	"Use the XML backend with the provided XML file.",
 	"Use the network backend with the provided hostname.",
 	"Use the context at the provided URI.",
+	"Scan for available backends.",
 };
 
 static void usage(void)
@@ -60,17 +62,44 @@ static void usage(void)
 					options_descriptions[i]);
 }
 
+static void scan(void)
+{
+	struct iio_context_info **info;
+	unsigned int i;
+	int ret;
+
+	ret = iio_scan_contexts(&info);
+	if (ret < 0)
+		return;
+
+	if (ret == 0) {
+		printf("No contexts found.\n");
+		return;
+	}
+
+	printf("Available contexts:\n");
+
+	for (i = 0; i < ret; i++) {
+		printf("\t%d: %s [%s]\n", i,
+			iio_context_info_get_description(info[i]),
+			iio_context_info_get_uri(info[i]));
+	}
+
+	iio_context_info_list_free(info);
+}
+
 int main(int argc, char **argv)
 {
 	struct iio_context *ctx;
 	int c, option_index = 0, arg_index = 0, xml_index = 0, ip_index = 0,
 	    uri_index = 0;
 	enum backend backend = LOCAL;
+	bool do_scan = false;
 	unsigned int major, minor;
 	char git_tag[8];
 	int ret;
 
-	while ((c = getopt_long(argc, argv, "+hn:x:u:",
+	while ((c = getopt_long(argc, argv, "+hn:x:u:s",
 					options, &option_index)) != -1) {
 		switch (c) {
 		case 'h':
@@ -94,6 +123,10 @@ int main(int argc, char **argv)
 			arg_index += 2;
 			xml_index = arg_index;
 			break;
+		case 's':
+			arg_index += 1;
+			do_scan = true;
+			break;
 		case 'u':
 			if (backend != LOCAL) {
 				fprintf(stderr, "-x, -n and -u are mutually exclusive\n");
@@ -116,6 +149,11 @@ int main(int argc, char **argv)
 
 	iio_library_get_version(&major, &minor, git_tag);
 	printf("Library version: %u.%u (git tag: %s)\n", major, minor, git_tag);
+
+	if (do_scan) {
+		scan();
+		return EXIT_SUCCESS;
+	}
 
 	if (backend == XML)
 		ctx = iio_create_xml_context(argv[xml_index]);
