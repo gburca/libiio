@@ -332,6 +332,174 @@ static void usb_shutdown(struct iio_context *ctx)
 	free(ctx->pdata);
 }
 
+static void usb_context_info_free(struct iio_context_info *info)
+{
+	free(info->description);
+	free(info->uri);
+}
+
+#define USB_URI_MAX_LEN (sizeof("usb:127.255") + 1)
+
+static int usb_fill_context_info(struct iio_context_info *info,
+	libusb_device *dev)
+{
+	struct libusb_device_descriptor desc;
+	char manufacturer[64], product[64];
+	struct libusb_device_handle *hdl;
+	char *description;
+	size_t description_len;
+	char *uri;
+	int ret;
+
+	libusb_get_device_descriptor(dev, &desc);
+
+	uri = malloc(USB_URI_MAX_LEN);
+	if (!uri)
+		return -ENOMEM;
+
+	ret = snprintf(uri, USB_URI_MAX_LEN, "usb:%d.%d",
+		libusb_get_bus_number(dev), libusb_get_device_address(dev));
+	if (ret < 0) {
+		free(uri);
+		return -ENOMEM;
+	}
+
+	description_len = sizeof("USB  ID 0000:0000") + strlen(uri) + 1;
+
+	ret = libusb_open(dev, &hdl);
+	if (ret == 0) {
+		if (desc.iManufacturer == 0) {
+			manufacturer[0] = '\0';
+		} else {
+			libusb_get_string_descriptor_ascii(hdl,
+				desc.iManufacturer,
+				(unsigned char *) manufacturer,
+				sizeof(manufacturer));
+		}
+
+		if (desc.iProduct == 0) {
+			product[0] = '\0';
+		} else {
+			libusb_get_string_descriptor_ascii(hdl,
+				desc.iProduct, (unsigned char *) product,
+				sizeof(product));
+		}
+
+		libusb_close(hdl);
+
+		description_len += strlen(product) + strlen(manufacturer) + 2;
+		description = malloc(description_len);
+		if (!description) {
+			free(uri);
+		    return -ENOMEM;
+		}
+
+		ret = snprintf(description, description_len,
+			"USB %s ID %.4x:%.4x %s %s",
+			uri+4, desc.idVendor, desc.idProduct, manufacturer,
+			product);
+	} else {
+		description = malloc(description_len);
+		if (!description) {
+			free(uri);
+		    return -ENOMEM;
+		}
+
+		ret = snprintf(description, description_len, "USB %s ID %.4x:%.4x",
+			uri+4, desc.idVendor, desc.idProduct);
+	}
+
+	if (ret < 0) {
+		free(description);
+		free(uri);
+		return -ENOMEM;
+	}
+
+	info->uri = uri;
+	info->description = description;
+	info->free = usb_context_info_free;
+
+	return 0;
+}
+
+struct iio_usb_vid_pid {
+	unsigned short vid;
+	unsigned short pid;
+};
+
+/* List of known VID/PID combinations that support the IIO interface */
+static const struct iio_usb_vid_pid iio_usb_vid_pids[] = {
+	{ 0x0456, 0xb672 },
+	{ 0, 0 }
+};
+
+static bool iio_usb_match_device(libusb_device *dev)
+{
+	const struct iio_usb_vid_pid *vid_pid;
+	struct libusb_device_descriptor desc;
+
+	libusb_get_device_descriptor(dev, &desc);
+
+	for (vid_pid = iio_usb_vid_pids; vid_pid->vid != 0; vid_pid++) {
+		if (desc.idVendor == vid_pid->vid &&
+		    desc.idProduct == vid_pid->pid)
+			return true;
+	}
+
+	return false;
+}
+
+int usb_context_scan(struct iio_scan_result *scan_result)
+{
+	struct iio_context_info **info;
+	libusb_device **device_list;
+	unsigned int num_devices;
+	libusb_context *usb_ctx;
+	unsigned int i;
+	int ret;
+
+	ret = libusb_init(&usb_ctx);
+	if (ret) {
+		DEBUG("Unable to init libusb: %d\n", ret);
+		return 0; /* No USB support found on the system. */
+	}
+
+	ret = libusb_get_device_list(usb_ctx, &device_list);
+	if (ret < 0) {
+		ret = -(int) libusb_to_errno(ret);
+		goto cleanup_exit;
+	}
+
+	num_devices = 0;
+	for (i = 0; device_list[i]; i++) {
+		if (iio_usb_match_device(device_list[i]))
+			num_devices++;
+	}
+
+	info = iio_scan_result_add(scan_result, num_devices);
+	if (!info) {
+		ret = -ENOMEM;
+		goto cleanup_free_device_list;
+	}
+
+	for (i = 0; device_list[i]; i++) {
+		if (iio_usb_match_device(device_list[i])) {
+			ret = usb_fill_context_info(*info, device_list[i]);
+			if (ret)
+				goto cleanup_free_device_list;
+			info++;
+		}
+	}
+	ret = 0;
+
+cleanup_free_device_list:
+	libusb_free_device_list(device_list, true);
+cleanup_exit:
+	libusb_exit(usb_ctx);
+
+	return ret;
+}
+
 static const struct iio_backend_ops usb_ops = {
 	.get_version = usb_get_version,
 	.open = usb_open,

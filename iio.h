@@ -61,6 +61,7 @@ typedef long ssize_t;
 #endif
 
 struct iio_context;
+struct iio_context_info;
 struct iio_device;
 struct iio_channel;
 struct iio_buffer;
@@ -150,6 +151,32 @@ __api struct iio_context * iio_create_network_context(const char *host);
  * @return On failure, NULL is returned and errno is set appropriately */
 __api struct iio_context * iio_create_usb_context(
 		unsigned int bus, unsigned int address);
+
+/** @brief Enumerate available contexts
+ * @param info
+ * @returns On success, the number of contexts found.
+ * @returns On failure, a negative error number.
+ */
+__api ssize_t iio_scan_contexts(struct iio_context_info ***info);
+
+/** @brief Free a context info list
+ * @param info The list to free
+ */
+__api void iio_context_info_list_free(struct iio_context_info **info);
+
+/** @brief Get description for a context
+ * @param info
+ * @return The human readable description string for the context.
+ */
+__api const char * iio_context_info_get_description(
+		const struct iio_context_info *info);
+
+/** @brief Get URI for a context
+ * @param info
+ * @return The machine readable URI for the context.
+ */
+__api const char * iio_context_info_get_uri(
+		const struct iio_context_info *info);
 
 /** @brief Create a context from a URI description
  * @param uri A URI describing the context location

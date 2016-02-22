@@ -1501,6 +1501,32 @@ static struct iio_context * local_clone(
 	return local_create_context();
 }
 
+static int check_device(void *d, const char *path)
+{
+	*(bool *)d = true;
+	return 0;
+}
+
+int local_context_scan(struct iio_scan_result *scan_result)
+{
+	struct iio_context_info **info;
+	bool exists = false;
+	int ret;
+
+	ret = foreach_in_dir(&exists, "/sys/bus/iio/devices", true, check_device);
+	if (ret < 0 || !exists)
+		return 0;
+
+	info = iio_scan_result_add(scan_result, 1);
+	if (!info)
+		return -ENOMEM;
+
+	info[0]->description = "Local";
+	info[0]->uri = "local:";
+
+	return 0;
+}
+
 static const struct iio_backend_ops local_ops = {
 	.clone = local_clone,
 	.open = local_open,

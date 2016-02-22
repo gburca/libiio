@@ -119,6 +119,20 @@ struct iio_backend_ops {
 	int (*set_timeout)(struct iio_context *ctx, unsigned int timeout);
 };
 
+struct iio_context_info {
+	char *description;
+	char *uri;
+	void (*free)(struct iio_context_info *info);
+};
+
+struct iio_scan_result {
+	size_t size;
+	struct iio_context_info **info;
+};
+
+struct iio_context_info **iio_scan_result_add(
+	struct iio_scan_result *scan_result, size_t num);
+
 struct iio_context_pdata;
 struct iio_device_pdata;
 struct iio_channel_pdata;
@@ -218,6 +232,8 @@ struct iio_context * xml_create_context_mem(const char *xml, size_t len);
 struct iio_context * xml_create_context(const char *xml_file);
 struct iio_context * usb_create_context(unsigned int bus, unsigned int address);
 struct iio_context * usb_create_context_from_uri(const char *uri);
+int usb_context_scan(struct iio_scan_result *scan_result);
+int local_context_scan(struct iio_scan_result *scan_result);
 
 /* This function is not part of the API, but is used by the IIO daemon */
 __api ssize_t iio_device_get_sample_size_mask(const struct iio_device *dev,
