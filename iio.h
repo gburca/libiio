@@ -144,12 +144,12 @@ __api struct iio_context * iio_create_network_context(const char *host);
 
 
 /** @brief Create a context from USB devices
- * @param vid Vendor identification number
- * @param pid Product identification number
+ * @param bus The number of the bus the device is connected to
+ * @param address The address of the device on the bus it is connected to
  * @return On success, a pointer to an iio_context structure
  * @return On failure, NULL is returned and errno is set appropriately */
 __api struct iio_context * iio_create_usb_context(
-		unsigned short vid, unsigned short pid);
+		unsigned int bus, unsigned int address);
 
 
 /** @brief Duplicate a pre-existing IIO context
