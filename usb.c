@@ -608,3 +608,15 @@ err_set_errno:
 	errno = -ret;
 	return NULL;
 }
+
+struct iio_context * usb_create_context_from_uri(const char *uri)
+{
+	unsigned int bus, address;
+
+	if (strncmp(uri, "usb:", sizeof("usb:") - 1) != 0)
+		return NULL;
+
+	sscanf(uri+4, "%u.%u", &bus, &address);
+
+	return usb_create_context(bus, address);
+}
