@@ -129,6 +129,24 @@ static unsigned int usb_calculate_remote_timeout(unsigned int timeout)
 	return timeout / 2;
 }
 
+static int usb_reset_pipes(libusb_device_handle *hdl)
+{
+	return libusb_control_transfer(hdl, LIBUSB_REQUEST_TYPE_VENDOR |
+		LIBUSB_RECIPIENT_INTERFACE, 0, 0, 0, NULL, 0, 0);
+}
+
+static int usb_open_pipe(libusb_device_handle *hdl, unsigned int ep)
+{
+	return libusb_control_transfer(hdl, LIBUSB_REQUEST_TYPE_VENDOR |
+		LIBUSB_RECIPIENT_INTERFACE, 1, ep - 1, 0, NULL, 0, 0);
+}
+
+static int usb_close_pipe(libusb_device_handle *hdl, unsigned int ep)
+{
+	return libusb_control_transfer(hdl, LIBUSB_REQUEST_TYPE_VENDOR |
+		LIBUSB_RECIPIENT_INTERFACE, 2, ep - 1, 0, NULL, 0, 0);
+}
+
 static int usb_reserve_ep_unlocked(const struct iio_device *dev)
 {
 	struct iio_context_pdata *pdata = dev->ctx->pdata;
@@ -180,6 +198,8 @@ static int usb_open(const struct iio_device *dev,
 	if (ret)
 		goto out_unlock;
 
+	usb_open_pipe(ctx_pdata->hdl, pdata->io_ctx.ep);
+
 	iio_mutex_lock(pdata->lock);
 
 	ret = iiod_client_open_unlocked(ctx_pdata->iiod_client,
@@ -221,6 +241,8 @@ static int usb_close(const struct iio_device *dev)
 	pdata->opened = false;
 
 	iio_mutex_unlock(pdata->lock);
+
+	usb_close_pipe(ctx_pdata->hdl, pdata->io_ctx.ep);
 
 	usb_free_ep_unlocked(dev);
 
@@ -340,6 +362,8 @@ static void usb_shutdown(struct iio_context *ctx)
 	}
 
 	iiod_client_destroy(ctx->pdata->iiod_client);
+
+	usb_reset_pipes(ctx->pdata->hdl); /* Close everything */
 
 	libusb_close(ctx->pdata->hdl);
 	libusb_exit(ctx->pdata->ctx);
@@ -812,6 +836,9 @@ struct iio_context * usb_create_context(unsigned int bus,
 	pdata->timeout_ms = DEFAULT_TIMEOUT_MS;
 	pdata->io_ctx.ep = EP_OPS;
 
+	usb_reset_pipes(hdl);
+	usb_open_pipe(hdl, EP_OPS);
+
 	ctx = iiod_client_create_context(pdata->iiod_client,
 			(uintptr_t)&pdata->io_ctx);
 	if (!ctx)
@@ -857,6 +884,7 @@ err_free_endpoints:
 err_free_config_descriptor:
 	libusb_free_config_descriptor(conf_desc);
 err_libusb_close:
+	usb_reset_pipes(hdl); /* Close everything */
 	libusb_close(hdl);
 err_libusb_exit:
 	libusb_exit(usb_ctx);
